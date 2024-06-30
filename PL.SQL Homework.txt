@@ -1,0 +1,267 @@
+-- ZADANIE 1
+CREATE OR REPLACE PROCEDURE load_employee_data(p_last_name VARCHAR2, p_first_name VARCHAR2, p_job_id VARCHAR2, p_department_id NUMBER) --przyjmuje cztery parametry
+IS
+    -- Deklaracja zmiennych
+    new_employee_id NUMBER;
+    new_hire_date DATE := SYSDATE; --przypisanie wartości bierzącej daty
+    new_lowest_salary NUMBER;
+    new_manager_id NUMBER;
+    new_lowest_commission NUMBER;
+    new_lowest_bonus NUMBER;
+    new_email VARCHAR2(100);
+    TOO_MANY_SA_MANAGERS exception; --deklaracja wyjątku
+BEGIN
+    IF p_job_id = 'SA_MAN' THEN
+        RAISE TOO_MANY_SA_MANAGERS;
+    END IF;
+
+    -- numer pracowniczy (maksymalna wartość employee_id + 1)
+    SELECT MAX(employee_id) + 1 INTO new_employee_id
+    FROM EMPLOYEES;
+
+    -- ustalenie pensji pracownika na najniższą pensję na danym stanowisku w całej firmie
+    SELECT MIN(salary) INTO new_lowest_salary
+    FROM EMPLOYEES WHERE job_id = p_job_id;
+
+    -- ustalenie id przełożonego danego pracownika - powinien być nim kierownik danego departamentu
+    SELECT manager_id INTO new_manager_id
+    FROM DEPARTMENTS WHERE department_id = p_department_id;
+
+    -- email (pierwszaliteraimienia||nazwisko skonwertowane do dużych liter)
+    new_email := UPPER(SUBSTR(p_first_name, 1, 1)||p_last_name);
+
+    -- SA_REP (commission_pct oraz bonus powinny być ustalane na najniższe wartości w stosownych kolumnach w całej tabeli EMPLOYEES)
+    IF p_job_id = 'SA_REP' THEN
+        SELECT MIN(commission_pct), MIN(bonus) INTO new_lowest_commission, new_lowest_bonus
+        FROM EMPLOYEES;
+    end if;
+
+    --Wstawienie nowego rekordu do tabeli EMPLOYEES w bazie danych
+    INSERT INTO EMPLOYEES (
+            employee_id,
+            last_name,
+            first_name,
+            job_id,
+            department_id,
+            hire_date,
+            salary,
+            manager_id,
+            email,
+            commission_pct,
+            bonus
+        ) VALUES (
+            new_employee_id,
+            p_last_name,
+            p_first_name,
+            p_job_id,
+            p_department_id,
+            new_hire_date,
+            new_lowest_salary,
+            new_manager_id,
+            new_email,
+            new_lowest_commission,
+            new_lowest_bonus
+    );
+    COMMIT;
+EXCEPTION
+    WHEN TOO_MANY_SA_MANAGERS THEN
+        ROLLBACK;
+        dbms_output.put_line('TOO_MANY_SA_MANAGERS exception');
+    WHEN OTHERS THEN
+        ROLLBACK;
+        dbms_output.put_line('Something is wrong. Check the program');
+END load_employee_data;
+
+-----------------------------------------------------------------------------------------------------------------
+
+delete from employees where employee_id > 206;
+
+select * from employees where employee_id > 206;
+
+BEGIN
+    load_employee_data('Yanovich', 'Bogdan', 'SA_REP', 20); -- SA_REP
+END;
+
+
+BEGIN
+    load_employee_data('Yanovich', 'Bogdan', 'SA_MAN', 20); -- TOO_MANY_SA_MANAGERS exception
+END;
+
+
+BEGIN
+    load_employee_data('Sasvich', 'Vladislav', 'AC_ACCOUNT', 20); -- wartości w commission_pct oraz bonus są NA
+END;
+
+
+-- ZADANIE 2
+CREATE OR REPLACE PROCEDURE new_salaries_emp(p_job_id VARCHAR2, p_amount NUMBER, p_number_accepted OUT NUMBER, p_number_rejected OUT NUMBER) -- 2 parametry wejściowe i wyściowe
+IS
+    CURSOR old_salary IS --definicja kursoru old_salary
+        SELECT employee_id, salary FROM EMPLOYEES WHERE job_id = p_job_id;
+    new_salary NUMBER;
+BEGIN
+    p_number_accepted := 0; --przypisanie wartości 0
+    p_number_rejected := 0;
+
+    FOR emp IN old_salary LOOP --pętla, która będzie iterować przez wyniki zapytania zdefiniowanego przez kursor old_salary.
+        new_salary := emp.salary + p_amount;
+        IF new_salary <= emp.salary * 1.25 THEN
+            UPDATE EMPLOYEES
+            SET salary = new_salary
+            WHERE employee_id = emp.employee_id;
+            p_number_accepted := p_number_accepted + 1;
+        ELSE
+            p_number_rejected := p_number_rejected + 1;
+        END IF;
+    END LOOP;
+    COMMIT; --potwierdzenie transakcji
+END new_salaries_emp;
+
+-----------------------------------------------------------------------------------------------------------------
+select * from employees;
+
+DECLARE
+    --zmienne lokalne
+    accepted NUMBER; 
+    rejected NUMBER;
+BEGIN
+    new_salaries_emp('SA_REP', 1500, accepted, rejected);
+    DBMS_OUTPUT.PUT_LINE('accepted: ' || accepted);
+    DBMS_OUTPUT.PUT_LINE('rejected: ' || rejected);
+END;
+
+
+-- ZADANIE 3
+CREATE OR REPLACE PACKAGE procedures_combined
+IS
+    PROCEDURE load_employee_data(p_last_name VARCHAR2, p_first_name VARCHAR2, p_job_id VARCHAR2, p_department_id NUMBER);
+    PROCEDURE new_salaries_emp(p_job_id VARCHAR2, p_amount NUMBER, p_number_accepted OUT NUMBER, p_number_rejected OUT NUMBER);
+END;
+
+
+CREATE OR REPLACE PACKAGE BODY procedures_combined
+IS
+    PROCEDURE load_employee_data(p_last_name VARCHAR2, p_first_name VARCHAR2, p_job_id VARCHAR2, p_department_id NUMBER
+    ) IS
+        -- Deklaracja zmiennych
+        new_employee_id NUMBER;
+        new_hire_date DATE := SYSDATE;
+        new_lowest_salary NUMBER;
+        new_manager_id NUMBER;
+        new_lowest_commission NUMBER;
+        new_lowest_bonus NUMBER;
+        new_email VARCHAR2(100);
+        TOO_MANY_SA_MANAGERS exception;
+    BEGIN
+        IF p_job_id = 'SA_MAN' THEN
+            RAISE TOO_MANY_SA_MANAGERS;
+        END IF;
+
+        -- numer pracowniczy (maksymalna wartość employee_id + 1)
+        SELECT MAX(employee_id) + 1 INTO new_employee_id
+        FROM EMPLOYEES;
+
+        -- ustalenie pensji pracownika na najniższą pensję na danym stanowisku w całej firmie
+        SELECT MIN(salary) INTO new_lowest_salary
+        FROM EMPLOYEES WHERE job_id = p_job_id;
+
+        -- ustalenie id przełożonego danego pracownika - powinien być nim kierownik danego departamentu
+        SELECT manager_id INTO new_manager_id
+        FROM DEPARTMENTS WHERE department_id = p_department_id;
+
+        -- email (pierwszaliteraimienia||nazwisko skonwertowane do dużych liter)
+        new_email := UPPER(SUBSTR(p_first_name, 1, 1)||p_last_name);
+
+        -- SA_REP (commission_pct oraz bonus powinny być ustalane na najniższe wartości w stosownych kolumnach w całej tabeli EMPLOYEES)
+        IF p_job_id = 'SA_REP' THEN
+            SELECT MIN(commission_pct), MIN(bonus) INTO new_lowest_commission, new_lowest_bonus
+            FROM EMPLOYEES;
+        end if;
+
+            INSERT INTO EMPLOYEES (
+            employee_id,
+            last_name,
+            first_name,
+            job_id,
+            department_id,
+            hire_date,
+            salary,
+            manager_id,
+            email,
+            commission_pct,
+            bonus
+        ) VALUES (
+            new_employee_id,
+            p_last_name,
+            p_first_name,
+            p_job_id,
+            p_department_id,
+            new_hire_date,
+            new_lowest_salary,
+            new_manager_id,
+            new_email,
+            new_lowest_commission,
+            new_lowest_bonus
+        );
+    COMMIT;
+    EXCEPTION
+        WHEN TOO_MANY_SA_MANAGERS THEN
+            ROLLBACK;
+            dbms_output.put_line('TOO_MANY_SA_MANAGERS exception');
+        WHEN OTHERS THEN
+            ROLLBACK;
+            dbms_output.put_line('Something is wrong. Check the program');
+    END load_employee_data;
+
+    PROCEDURE new_salaries_emp(p_job_id VARCHAR2, p_amount NUMBER, p_number_accepted OUT NUMBER, p_number_rejected OUT NUMBER
+    ) IS
+        CURSOR old_salary IS
+            SELECT employee_id, salary FROM EMPLOYEES WHERE job_id = p_job_id;
+        new_salary NUMBER;
+    BEGIN
+        p_number_accepted := 0;
+        p_number_rejected := 0;
+
+        FOR emp IN old_salary LOOP
+            new_salary := emp.salary + p_amount;
+
+            IF new_salary <= emp.salary * 1.25 THEN
+                UPDATE EMPLOYEES
+                SET salary = new_salary
+                WHERE employee_id = emp.employee_id;
+                p_number_accepted := p_number_accepted + 1;
+            ELSE
+                p_number_rejected := p_number_rejected + 1;
+            END IF;
+        END LOOP;
+        COMMIT;
+    END new_salaries_emp;
+END;
+
+
+------------------------------------------------------------------------------------
+delete from employees where employee_id > 206;
+
+select * from employees where employee_id > 206;
+
+BEGIN
+    procedures_combined.load_employee_data('Yanovich', 'Bogdan', 'SA_REP', 20);
+END;
+
+BEGIN
+    procedures_combined.load_employee_data('Yanovich', 'Bogdan', 'SA_MAN', 20);
+END;
+
+BEGIN
+    procedures_combined.load_employee_data('Sassvich', 'Vladislav', 'AC_ACCOUNT', 20); 
+END;
+
+DECLARE
+    accepted NUMBER;
+    rejected NUMBER;
+BEGIN
+    procedures_combined.new_salaries_emp('SA_REP', 1500, accepted, rejected);
+    DBMS_OUTPUT.PUT_LINE('accepted: ' || accepted);
+    DBMS_OUTPUT.PUT_LINE('rejected: ' || rejected);
+END;
+
